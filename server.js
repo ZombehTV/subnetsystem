@@ -4,7 +4,7 @@ const fs = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
-const PORT = process.env.PORT || 8080; // Use the host's provided port or 8080
+const PORT = process.env.PORT || 10000; // Use the host's provided port or 8080
 
 // Function to load domain mappings dynamically from mappings.json
 let domainMappings = {};
