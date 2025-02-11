@@ -4,55 +4,58 @@ const fs = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
-const PORT = process.env.PORT || 10000; // Use the host's provided port or 8080
+const PORT = process.env.PORT || 10000;
 
-// Function to load domain mappings dynamically from mappings.json
+// Load domain mappings
 let domainMappings = {};
 function loadMappings() {
   try {
-    const data = fs.readFileSync('mappings.json');
-    domainMappings = JSON.parse(data);
-    console.log('Domain mappings loaded:', domainMappings);
+    domainMappings = JSON.parse(fs.readFileSync('mappings.json'));
   } catch (err) {
     console.error('Error loading mappings:', err);
   }
 }
 loadMappings();
 
-// (Optional) Automatically reload mappings when the file changes
-fs.watchFile('mappings.json', (curr, prev) => {
-  console.log('Reloading mappings...');
-  loadMappings();
-});
+// Watch for mapping changes (optional)
+fs.watch('mappings.json', loadMappings);
 
-// Middleware to handle requests based on the Host header
+// 1. First check for custom domain mapping
 app.use((req, res, next) => {
-  const hostHeader = req.headers.host;
-  const host = hostHeader && hostHeader.split(':')[0]; // Strip out any port info
-
+  const host = req.hostname;
+  
   if (domainMappings[host]) {
-    // If a custom mapping exists, serve the custom HTML file
-    return res.sendFile(path.join(__dirname, domainMappings[host]), err => {
+    const filePath = path.join(__dirname, domainMappings[host]);
+    res.sendFile(filePath, (err) => {
       if (err) {
-        console.error(`Error sending file for ${host}:`, err);
-        res.status(500).send('Internal Server Error');
+        console.error(`File error for ${host}:`, err);
+        next(err); // Pass error to Express error handler
       }
     });
+  } else {
+    next(); // Proceed to proxy middleware
   }
-  
-  // If no custom mapping exists, proxy the request to the original destination
-  // (For HTTP only; note that HTTPS requires extra handling)
-  return createProxyMiddleware({
-    target: `http://${host}`,
-    changeOrigin: true,
-    onError: (err, req, res) => {
-      console.error(`Proxy error for ${host}:`, err);
-      res.status(502).send('Bad Gateway');
-    }
-  })(req, res, next);
 });
 
-// Start the server
+// 2. Proxy middleware for all other requests
+app.use(createProxyMiddleware({
+  target: '', // Dynamic target set below
+  router: (req) => {
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    return `${protocol}://${req.headers.host}`;
+  },
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    console.error('Proxy error:', err);
+    res.status(502).send('Bad Gateway');
+  }
+}));
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  res.status(500).send('Internal Server Error');
+});
+
 app.listen(PORT, () => {
-  console.log(`Dynamic proxy server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
